@@ -82,6 +82,13 @@ ssh_deletekeys: true
 ssh_genkeytypes: ['rsa', 'ecdsa', 'ed25519']
 EOF
 
+# 🔥 Final tweak: override /etc/cloud/cloud.cfg if it conflicts
+if grep -q '^preserve_hostname:' /etc/cloud/cloud.cfg; then
+    sed -i 's/^preserve_hostname:.*/preserve_hostname: false/' /etc/cloud/cloud.cfg
+else
+    echo "preserve_hostname: false" >> /etc/cloud/cloud.cfg
+fi
+
 log "🧠 Installing dynamic hostname generator (cloud-init per-instance script)..."
 mkdir -p "$CLOUD_INIT_SCRIPT_DIR"
 
@@ -117,7 +124,6 @@ log "🔁 Forcing cloud-init to re-run at next boot..."
 cloud-init clean --logs
 
 log "🧹 Final cleanup before shutdown..."
-
 rm -f /etc/ssh/ssh_host_*
 truncate -s 0 /etc/machine-id
 rm -f /var/lib/dbus/machine-id
