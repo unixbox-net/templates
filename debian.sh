@@ -7,9 +7,8 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 
 ### Variables ###
 MACHINE_ID_RESET_SERVICE="/etc/systemd/system/regenerate-machine-id.service"
-CLOUD_INIT_SCRIPT_DIR="/var/lib/cloud/scripts/per-instance"
-HOSTNAME_SCRIPT="$CLOUD_INIT_SCRIPT_DIR/99-force-hostname.sh"
 CLOUD_CFG_FILE="/etc/cloud/cloud.cfg.d/90-xaeon-defaults.cfg"
+FQDN_FIX_CFG="/etc/cloud/cloud.cfg.d/91-fqdn-fix.cfg"
 
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
@@ -20,7 +19,7 @@ error_exit() {
     exit 1
 }
 
-trap 'error_exit "Script encountered an error."' ERR
+trap 'error_exit \"Script encountered an error.\"' ERR
 
 log "🔄 Updating system..."
 apt update && apt full-upgrade -y
@@ -36,7 +35,7 @@ chmod 0440 /etc/sudoers.d/debian
 log "📡 Enabling QEMU Guest Agent..."
 systemctl enable --now qemu-guest-agent
 
-log "🧭 Setting Cloud-Init defaults..."
+log "🧭 Setting Cloud-Init base config..."
 cat > "$CLOUD_CFG_FILE" <<EOF
 # Cloud-Init Global Defaults (Xaeon)
 preserve_hostname: false
@@ -49,7 +48,7 @@ ntp:
     - 1.ca.pool.ntp.org
 EOF
 
-# Backup override in case default config conflicts
+# Override preserve_hostname if already set in base config
 if grep -q '^preserve_hostname:' /etc/cloud/cloud.cfg; then
     sed -i 's/^preserve_hostname:.*/preserve_hostname: false/' /etc/cloud/cloud.cfg
 else
@@ -77,50 +76,32 @@ EOF
 
 systemctl enable regenerate-machine-id.service
 
-log "🌐 Installing strict FQDN enforcement..."
-mkdir -p "$CLOUD_INIT_SCRIPT_DIR"
+log "🌐 Configuring FQDN enforcement via Cloud-Init..."
+cat > "$FQDN_FIX_CFG" <<'EOF'
+# Appends domain to Proxmox-injected hostname automatically
+preserve_hostname: false
 
-cat > "$HOSTNAME_SCRIPT" <<'EOF'
-#!/bin/bash
-LOG_FILE="/var/log/cloud-init.log"
-DOMAIN="lan.xaeon.io"
+fqdn: !!python/unicode
+  "%s.lan.xaeon.io" % (open("/etc/hostname").read().strip())
 
-NAME=$(grep -oP '"local-hostname":\s*"\K[^"]+' /var/lib/cloud/data/instance-data.json 2>/dev/null)
-
-if [[ -z "$NAME" ]]; then
-  echo "[hostname-init] ❌ No hostname found in metadata. Dumping metadata for debug:" | tee -a "$LOG_FILE"
-  cat /var/lib/cloud/data/instance-data.json >> "$LOG_FILE"
-  exit 1
-fi
-
-FQDN="${NAME}.${DOMAIN}"
-
-echo "[hostname-init] ✅ Setting full hostname to $FQDN" | tee -a "$LOG_FILE"
-hostnamectl set-hostname --static "$FQDN"
-hostnamectl set-hostname --transient "$FQDN"
-hostnamectl set-hostname --pretty "$FQDN"
-echo "$FQDN" > /etc/hostname
-
-sed -i '/127.0.1.1/d' /etc/hosts
-echo "127.0.1.1 $FQDN $NAME" >> /etc/hosts
-
-echo "[hostname-init] ✅ FQDN fully applied and /etc/hostname updated." | tee -a "$LOG_FILE"
+runcmd:
+  - sed -i '/127.0.1.1/d' /etc/hosts
+  - echo "127.0.1.1 $(cat /etc/hostname).lan.xaeon.io $(cat /etc/hostname)" >> /etc/hosts
 EOF
 
-chmod +x "$HOSTNAME_SCRIPT"
-
-log "🧼 Resetting Cloud-Init for next boot..."
+log "🧼 Cleaning up Cloud-Init state for fresh boot..."
 cloud-init clean --logs
 
 log "🧹 Final cleanup before template shutdown..."
-rm -f /etc/ssh/ssh_host_*
+# Important: Do not remove host SSH keys if cloud-init won’t regen them
 truncate -s 0 /etc/machine-id
 rm -f /var/lib/dbus/machine-id
 ln -s /etc/machine-id /var/lib/dbus/machine-id
 
-# Remove delete-key directive just in case
-sed -i '/ssh_deletekeys:/d' "$CLOUD_CFG_FILE"
+# Remove delete-key directive if present (precaution)
+sed -i '/ssh_deletekeys:/d' "$CLOUD_CFG_FILE" || true
 
+# Clear shell history
 history -c && history -w
 
 log "✅ Template prep complete. You may now shut this VM down and convert it to a template."
