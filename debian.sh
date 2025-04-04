@@ -8,6 +8,8 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 ### Variables ###
 SSH_REGEN_SERVICE="/etc/systemd/system/regenerate-ssh-hostkeys.service"
 MACHINE_ID_RESET_SERVICE="/etc/systemd/system/regenerate-machine-id.service"
+CLOUD_INIT_SCRIPT_DIR="/var/lib/cloud/scripts/per-instance"
+HOSTNAME_SCRIPT="$CLOUD_INIT_SCRIPT_DIR/99-set-hostname.sh"
 
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
@@ -80,21 +82,39 @@ ssh_deletekeys: true
 ssh_genkeytypes: ['rsa', 'ecdsa', 'ed25519']
 EOF
 
-log "Adding dynamic hostname logic via cloud-init bootcmd..."
-cat > /etc/cloud/cloud.cfg.d/99-auto-hostname.cfg <<EOF
-# Automatically generate FQDN from Proxmox VM name via DMI
-preserve_hostname: true
+log "Creating dynamic hostname script (cloud-init final phase)..."
+mkdir -p "$CLOUD_INIT_SCRIPT_DIR"
 
-bootcmd:
-  - |
-    NAME=\$(cat /sys/class/dmi/id/product_name)
-    DOMAIN="lan.xaeon.io"
-    FQDN="\${NAME}.\${DOMAIN}"
-    echo "[cloud-init] Setting hostname to \$FQDN"
-    hostnamectl set-hostname "\$FQDN"
-    sed -i "/127.0.1.1/d" /etc/hosts
-    echo "127.0.1.1 \$FQDN \$NAME" >> /etc/hosts
+cat > "$HOSTNAME_SCRIPT" <<'EOF'
+#!/bin/bash
+
+LOG_FILE="/var/log/cloud-init.log"
+NAME=$(cat /sys/class/dmi/id/product_name 2>/dev/null)
+
+if [[ -z "$NAME" ]]; then
+  echo "[cloud-init] ERROR: Unable to read VM name from DMI (/sys/class/dmi/id/product_name)" | tee -a "$LOG_FILE"
+  exit 1
+fi
+
+DOMAIN="lan.xaeon.io"
+FQDN="${NAME}.${DOMAIN}"
+
+echo "[cloud-init] Setting hostname to $FQDN" | tee -a "$LOG_FILE"
+hostnamectl set-hostname "$FQDN"
+
+if [[ $? -ne 0 ]]; then
+  echo "[cloud-init] ERROR: Failed to set hostname to $FQDN" | tee -a "$LOG_FILE"
+  exit 1
+fi
+
+# Clean and update /etc/hosts
+sed -i "/127.0.1.1/d" /etc/hosts
+echo "127.0.1.1 $FQDN $NAME" >> /etc/hosts
+
+echo "[cloud-init] Hostname successfully set to $FQDN and updated in /etc/hosts" | tee -a "$LOG_FILE"
 EOF
+
+chmod +x "$HOSTNAME_SCRIPT"
 
 log "Final cleanup before shutdown..."
 
