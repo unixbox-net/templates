@@ -89,14 +89,19 @@ cat > "$HOSTNAME_SCRIPT" <<'EOF'
 #!/bin/bash
 
 LOG_FILE="/var/log/cloud-init.log"
-NAME=$(cat /sys/class/dmi/id/product_serial 2>/dev/null)
+DOMAIN="lan.xaeon.io"
 
-if [[ -z "$NAME" || "$NAME" =~ ^StandardPC ]]; then
-  echo "[cloud-init] WARNING: Could not read a proper VM name from product_serial. Falling back to hostname." | tee -a "$LOG_FILE"
-  NAME=$(hostname)
+# Try to read VM name from cloud-init metadata
+if [[ -f /var/lib/cloud/data/instance-data.json ]]; then
+  NAME=$(grep -oP '"local-hostname":\s*"\K[^"]+' /var/lib/cloud/data/instance-data.json)
 fi
 
-DOMAIN="lan.xaeon.io"
+# Fallback: use short current hostname
+if [[ -z "$NAME" ]]; then
+  NAME=$(hostname | cut -d. -f1)
+  echo "[cloud-init] WARNING: Falling back to hostname '$NAME'" | tee -a "$LOG_FILE"
+fi
+
 FQDN="${NAME}.${DOMAIN}"
 
 echo "[cloud-init] Setting hostname to $FQDN" | tee -a "$LOG_FILE"
