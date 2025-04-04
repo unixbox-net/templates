@@ -94,15 +94,19 @@ fi
 FQDN="${NAME}.${DOMAIN}"
 
 echo "[fqdn-fix] ✅ Setting full hostname: $FQDN" | tee -a "$LOG_FILE"
-hostnamectl set-hostname --static "$FQDN"
-hostnamectl set-hostname --transient "$FQDN"
-hostnamectl set-hostname --pretty "$FQDN"
+hostnamectl set-hostname "$FQDN"
 echo "$FQDN" > /etc/hostname
 
-sed -i '/127.0.1.1/d' /etc/hosts
-echo "127.0.1.1 $FQDN $NAME" >> /etc/hosts
+# Update the loopback hostname entry — safely replaces existing line
+if grep -q '^127.0.1.1' /etc/hosts; then
+  sed -i "s/^127.0.1.1 .*/127.0.1.1 $FQDN $NAME/" /etc/hosts
+elif grep -q '^127.0.0.1' /etc/hosts; then
+  sed -i "s/^127.0.0.1 .*/127.0.0.1 $FQDN $NAME/" /etc/hosts
+else
+  echo "127.0.1.1 $FQDN $NAME" >> /etc/hosts
+fi
 
-echo "[fqdn-fix] ✅ /etc/hostname and /etc/hosts updated." | tee -a "$LOG_FILE"
+echo "[fqdn-fix] ✅ /etc/hostname and /etc/hosts updated cleanly." | tee -a "$LOG_FILE"
 EOF
 
 chmod +x "$HOSTNAME_FIX_SCRIPT"
