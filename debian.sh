@@ -39,6 +39,7 @@ systemctl enable --now systemd-timesyncd
 sed -i 's|^#NTP=.*|NTP=0.debian.pool.ntp.org 1.debian.pool.ntp.org|' /etc/systemd/timesyncd.conf
 systemctl restart systemd-timesyncd
 
+log "Creating regenerate-machine-id.service..."
 cat > "$MACHINE_ID_RESET_SERVICE" <<EOF
 [Unit]
 Description=Regenerate machine-id
@@ -77,6 +78,13 @@ cat > /etc/cloud/cloud.cfg.d/99-custom.cfg <<EOF
 preserve_hostname: false
 ssh_deletekeys: true
 ssh_genkeytypes: ['rsa', 'ecdsa', 'ed25519']
+EOF
+
+log "Setting cloud-init to use Proxmox clone name as hostname..."
+cat > /etc/cloud/cloud.cfg.d/99-auto-hostname.cfg <<EOF
+# Automatically generate FQDN from Proxmox clone name
+preserve_hostname: false
+fqdn: "{{ v1.vm_name }}.lan.xaeon.io"
 EOF
 
 log "Final cleanup before shutdown..."
