@@ -80,11 +80,20 @@ ssh_deletekeys: true
 ssh_genkeytypes: ['rsa', 'ecdsa', 'ed25519']
 EOF
 
-log "Setting cloud-init to use Proxmox clone name as hostname..."
+log "Adding dynamic hostname logic via cloud-init bootcmd..."
 cat > /etc/cloud/cloud.cfg.d/99-auto-hostname.cfg <<EOF
-# Automatically generate FQDN from Proxmox clone name
-preserve_hostname: false
-fqdn: "{{ v1.vm_name }}.lan.xaeon.io"
+# Automatically generate FQDN from Proxmox VM name via DMI
+preserve_hostname: true
+
+bootcmd:
+  - |
+    NAME=\$(cat /sys/class/dmi/id/product_name)
+    DOMAIN="lan.xaeon.io"
+    FQDN="\${NAME}.\${DOMAIN}"
+    echo "[cloud-init] Setting hostname to \$FQDN"
+    hostnamectl set-hostname "\$FQDN"
+    sed -i "/127.0.1.1/d" /etc/hosts
+    echo "127.0.1.1 \$FQDN \$NAME" >> /etc/hosts
 EOF
 
 log "Final cleanup before shutdown..."
