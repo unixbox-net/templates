@@ -99,11 +99,12 @@ echo "[hostname-init] ✅ Setting full hostname to $FQDN" | tee -a "$LOG_FILE"
 hostnamectl set-hostname --static "$FQDN"
 hostnamectl set-hostname --transient "$FQDN"
 hostnamectl set-hostname --pretty "$FQDN"
+echo "$FQDN" > /etc/hostname
 
 sed -i '/127.0.1.1/d' /etc/hosts
 echo "127.0.1.1 $FQDN $NAME" >> /etc/hosts
 
-echo "[hostname-init] ✅ FQDN fully applied and /etc/hosts updated." | tee -a "$LOG_FILE"
+echo "[hostname-init] ✅ FQDN fully applied and /etc/hostname updated." | tee -a "$LOG_FILE"
 EOF
 
 chmod +x "$HOSTNAME_SCRIPT"
