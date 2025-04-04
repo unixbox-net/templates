@@ -39,6 +39,7 @@ log "🧭 Setting Cloud-Init defaults..."
 cat > "$CLOUD_CFG_FILE" <<EOF
 # Cloud-Init Global Defaults (Xaeon)
 preserve_hostname: false
+manage_etc_hosts: false
 timezone: America/Toronto
 ssh_genkeytypes: ['rsa', 'ecdsa', 'ed25519']
 ntp:
