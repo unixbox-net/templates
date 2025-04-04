@@ -1,8 +1,4 @@
 #!/bin/bash
-
-# Debian 12 Hostname Changer Script
-# Defaults domain to: lan.xaeon.io
-
 DEFAULT_DOMAIN="lan.xaeon.io"
 
 read -rp "Enter new hostname (short or FQDN): " USER_INPUT
