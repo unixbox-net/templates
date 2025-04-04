@@ -112,5 +112,6 @@ rm -f /var/lib/dbus/machine-id
 ln -s /etc/machine-id /var/lib/dbus/machine-id
 
 history -c && history -w
+sed -i '/ssh_deletekeys:/d' /etc/cloud/cloud.cfg.d/90-xaeon-defaults.cfg
 
-log "✅ Template prep complete. You may now shut this VM down and convert it to a template."
+log "Template prep complete. You may now shut this VM down and convert it to a template."
