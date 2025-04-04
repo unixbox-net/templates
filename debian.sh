@@ -9,7 +9,7 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 SSH_REGEN_SERVICE="/etc/systemd/system/regenerate-ssh-hostkeys.service"
 MACHINE_ID_RESET_SERVICE="/etc/systemd/system/regenerate-machine-id.service"
 CLOUD_INIT_SCRIPT_DIR="/var/lib/cloud/scripts/per-instance"
-HOSTNAME_SCRIPT="$CLOUD_INIT_SCRIPT_DIR/99-set-hostname.sh"
+HOSTNAME_SCRIPT="$CLOUD_INIT_SCRIPT_DIR/99-force-hostname.sh"
 
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
@@ -82,48 +82,46 @@ ssh_deletekeys: true
 ssh_genkeytypes: ['rsa', 'ecdsa', 'ed25519']
 EOF
 
-# 🔥 Final tweak: override /etc/cloud/cloud.cfg if it conflicts
+# 🔥 Backup plan — override cloud.cfg if needed
 if grep -q '^preserve_hostname:' /etc/cloud/cloud.cfg; then
     sed -i 's/^preserve_hostname:.*/preserve_hostname: false/' /etc/cloud/cloud.cfg
 else
     echo "preserve_hostname: false" >> /etc/cloud/cloud.cfg
 fi
 
-log "🧠 Installing dynamic hostname generator (cloud-init per-instance script)..."
+log "🧠 Installing strict hostname enforcement (cloud-init per-instance script)..."
 mkdir -p "$CLOUD_INIT_SCRIPT_DIR"
 
 cat > "$HOSTNAME_SCRIPT" <<'EOF'
 #!/bin/bash
-
 LOG_FILE="/var/log/cloud-init.log"
 DOMAIN="lan.xaeon.io"
 
-if [[ -f /var/lib/cloud/data/instance-data.json ]]; then
-  NAME=$(grep -oP '"local-hostname":\s*"\K[^"]+' /var/lib/cloud/data/instance-data.json)
-fi
+NAME=$(grep -oP '"local-hostname":\s*"\K[^"]+' /var/lib/cloud/data/instance-data.json 2>/dev/null)
 
 if [[ -z "$NAME" ]]; then
-  NAME=$(hostname | cut -d. -f1)
-  echo "[cloud-init] WARNING: Falling back to current hostname: $NAME" | tee -a "$LOG_FILE"
+  echo "[hostname-init] ❌ No hostname found in metadata. Dumping metadata for debug:" | tee -a "$LOG_FILE"
+  cat /var/lib/cloud/data/instance-data.json >> "$LOG_FILE"
+  exit 1
 fi
 
 FQDN="${NAME}.${DOMAIN}"
 
-echo "[cloud-init] Setting hostname to $FQDN" | tee -a "$LOG_FILE"
+echo "[hostname-init] ✅ Setting hostname to $FQDN" | tee -a "$LOG_FILE"
 hostnamectl set-hostname "$FQDN"
 
-sed -i "/127.0.1.1/d" /etc/hosts
+sed -i '/127.0.1.1/d' /etc/hosts
 echo "127.0.1.1 $FQDN $NAME" >> /etc/hosts
 
-echo "[cloud-init] Hostname set to $FQDN and /etc/hosts updated." | tee -a "$LOG_FILE"
+echo "[hostname-init] ✅ Hostname applied and /etc/hosts updated." | tee -a "$LOG_FILE"
 EOF
 
 chmod +x "$HOSTNAME_SCRIPT"
 
-log "🔁 Forcing cloud-init to re-run at next boot..."
+log "🔁 Resetting cloud-init to run fresh on next boot..."
 cloud-init clean --logs
 
-log "🧹 Final cleanup before shutdown..."
+log "🧹 Final cleanup before template shutdown..."
 rm -f /etc/ssh/ssh_host_*
 truncate -s 0 /etc/machine-id
 rm -f /var/lib/dbus/machine-id
@@ -131,4 +129,4 @@ ln -s /etc/machine-id /var/lib/dbus/machine-id
 
 history -c && history -w
 
-log "🎉 Template setup complete. You can now shut down and convert this VM to a template."
+log "🎉 Template prep complete. Shut this VM down and convert it to a template!"
