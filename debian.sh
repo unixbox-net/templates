@@ -49,7 +49,7 @@ ntp:
     - 1.ca.pool.ntp.org
 EOF
 
-# Safety override in global config
+# Backup override in case default config conflicts
 if grep -q '^preserve_hostname:' /etc/cloud/cloud.cfg; then
     sed -i 's/^preserve_hostname:.*/preserve_hostname: false/' /etc/cloud/cloud.cfg
 else
@@ -65,7 +65,11 @@ ConditionPathExists=!/etc/machine-id
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c 'rm -f /etc/machine-id /var/lib/dbus/machine-id && systemd-machine-id-setup && ln -sf /etc/machine-id /var/lib/dbus/machine-id'
+ExecStart=/bin/bash -c '
+rm -f /etc/machine-id /var/lib/dbus/machine-id &&
+systemd-machine-id-setup &&
+ln -sf /etc/machine-id /var/lib/dbus/machine-id
+'
 
 [Install]
 WantedBy=multi-user.target
@@ -73,7 +77,7 @@ EOF
 
 systemctl enable regenerate-machine-id.service
 
-log "🌐 Installing strict FQDN enforcement (via Cloud-Init script)..."
+log "🌐 Installing strict FQDN enforcement..."
 mkdir -p "$CLOUD_INIT_SCRIPT_DIR"
 
 cat > "$HOSTNAME_SCRIPT" <<'EOF'
@@ -111,7 +115,9 @@ truncate -s 0 /etc/machine-id
 rm -f /var/lib/dbus/machine-id
 ln -s /etc/machine-id /var/lib/dbus/machine-id
 
-history -c && history -w
-sed -i '/ssh_deletekeys:/d' /etc/cloud/cloud.cfg.d/90-xaeon-defaults.cfg
+# Remove delete-key directive just in case
+sed -i '/ssh_deletekeys:/d' "$CLOUD_CFG_FILE"
 
-log "Template prep complete. You may now shut this VM down and convert it to a template."
+history -c && history -w
+
+log "✅ Template prep complete. You may now shut this VM down and convert it to a template."
