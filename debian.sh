@@ -41,13 +41,12 @@ cat > "$CLOUD_CFG_FILE" <<EOF
 # Cloud-Init Global Defaults (Xaeon)
 preserve_hostname: false
 timezone: America/Toronto
-ssh_deletekeys: true
 ssh_genkeytypes: ['rsa', 'ecdsa', 'ed25519']
 ntp:
   enabled: true
   servers:
-    - 0.debian.pool.ntp.org
-    - 1.debian.pool.ntp.org
+    - 0.ca.pool.ntp.org
+    - 1.ca.pool.ntp.org
 EOF
 
 # Safety override in global config
