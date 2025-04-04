@@ -91,26 +91,19 @@ cat > "$HOSTNAME_SCRIPT" <<'EOF'
 LOG_FILE="/var/log/cloud-init.log"
 DOMAIN="lan.xaeon.io"
 
-# Try to read VM name from cloud-init metadata
 if [[ -f /var/lib/cloud/data/instance-data.json ]]; then
   NAME=$(grep -oP '"local-hostname":\s*"\K[^"]+' /var/lib/cloud/data/instance-data.json)
 fi
 
-# Fallback: use short current hostname
 if [[ -z "$NAME" ]]; then
   NAME=$(hostname | cut -d. -f1)
-  echo "[cloud-init] WARNING: Falling back to hostname '$NAME'" | tee -a "$LOG_FILE"
+  echo "[cloud-init] WARNING: Falling back to current hostname: $NAME" | tee -a "$LOG_FILE"
 fi
 
 FQDN="${NAME}.${DOMAIN}"
 
 echo "[cloud-init] Setting hostname to $FQDN" | tee -a "$LOG_FILE"
 hostnamectl set-hostname "$FQDN"
-
-if [[ $? -ne 0 ]]; then
-  echo "[cloud-init] ERROR: Failed to set hostname to $FQDN" | tee -a "$LOG_FILE"
-  exit 1
-fi
 
 sed -i "/127.0.1.1/d" /etc/hosts
 echo "127.0.1.1 $FQDN $NAME" >> /etc/hosts
@@ -120,15 +113,16 @@ EOF
 
 chmod +x "$HOSTNAME_SCRIPT"
 
+log "🔁 Forcing cloud-init to re-run at next boot..."
+cloud-init clean --logs
+
 log "🧹 Final cleanup before shutdown..."
 
-# Clear host identity for template prep
 rm -f /etc/ssh/ssh_host_*
 truncate -s 0 /etc/machine-id
 rm -f /var/lib/dbus/machine-id
 ln -s /etc/machine-id /var/lib/dbus/machine-id
 
-# Clear shell history
 history -c && history -w
 
 log "🎉 Template setup complete. You can now shut down and convert this VM to a template."
