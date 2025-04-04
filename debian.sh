@@ -6,17 +6,17 @@ LOG_FILE="/var/log/template-setup.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 ### Variables ###
-SSH_REGEN_SERVICE="/etc/systemd/system/regenerate-ssh-hostkeys.service"
 MACHINE_ID_RESET_SERVICE="/etc/systemd/system/regenerate-machine-id.service"
 CLOUD_INIT_SCRIPT_DIR="/var/lib/cloud/scripts/per-instance"
 HOSTNAME_SCRIPT="$CLOUD_INIT_SCRIPT_DIR/99-force-hostname.sh"
+CLOUD_CFG_FILE="/etc/cloud/cloud.cfg.d/90-xaeon-defaults.cfg"
 
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
 }
 
 error_exit() {
-    log "ERROR: $1"
+    log "❌ ERROR: $1"
     exit 1
 }
 
@@ -36,10 +36,26 @@ chmod 0440 /etc/sudoers.d/debian
 log "📡 Enabling QEMU Guest Agent..."
 systemctl enable --now qemu-guest-agent
 
-log "🕒 Configuring NTP..."
-systemctl enable --now systemd-timesyncd
-sed -i 's|^#NTP=.*|NTP=0.debian.pool.ntp.org 1.debian.pool.ntp.org|' /etc/systemd/timesyncd.conf
-systemctl restart systemd-timesyncd
+log "🧭 Setting Cloud-Init defaults..."
+cat > "$CLOUD_CFG_FILE" <<EOF
+# Cloud-Init Global Defaults (Xaeon)
+preserve_hostname: false
+timezone: America/New_York
+ssh_deletekeys: true
+ssh_genkeytypes: ['rsa', 'ecdsa', 'ed25519']
+ntp:
+  enabled: true
+  servers:
+    - 0.debian.pool.ntp.org
+    - 1.debian.pool.ntp.org
+EOF
+
+# Safety override in global config
+if grep -q '^preserve_hostname:' /etc/cloud/cloud.cfg; then
+    sed -i 's/^preserve_hostname:.*/preserve_hostname: false/' /etc/cloud/cloud.cfg
+else
+    echo "preserve_hostname: false" >> /etc/cloud/cloud.cfg
+fi
 
 log "🆔 Creating regenerate-machine-id.service..."
 cat > "$MACHINE_ID_RESET_SERVICE" <<EOF
@@ -56,40 +72,9 @@ ExecStart=/bin/bash -c 'rm -f /etc/machine-id /var/lib/dbus/machine-id && system
 WantedBy=multi-user.target
 EOF
 
-log "🔐 Creating regenerate-ssh-hostkeys.service..."
-cat > "$SSH_REGEN_SERVICE" <<EOF
-[Unit]
-Description=Regenerate SSH host keys
-Before=ssh.service
-ConditionPathExists=!/etc/ssh/ssh_host_rsa_key
-
-[Service]
-Type=oneshot
-ExecStart=/bin/bash -c 'rm -f /etc/ssh/ssh_host_* && ssh-keygen -A'
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-log "✅ Enabling regeneration services..."
 systemctl enable regenerate-machine-id.service
-systemctl enable regenerate-ssh-hostkeys.service
 
-log "⚙️ Configuring cloud-init defaults..."
-cat > /etc/cloud/cloud.cfg.d/99-custom.cfg <<EOF
-preserve_hostname: false
-ssh_deletekeys: true
-ssh_genkeytypes: ['rsa', 'ecdsa', 'ed25519']
-EOF
-
-# 🔥 Backup plan — override cloud.cfg if needed
-if grep -q '^preserve_hostname:' /etc/cloud/cloud.cfg; then
-    sed -i 's/^preserve_hostname:.*/preserve_hostname: false/' /etc/cloud/cloud.cfg
-else
-    echo "preserve_hostname: false" >> /etc/cloud/cloud.cfg
-fi
-
-log "🧠 Installing strict hostname enforcement (cloud-init per-instance script)..."
+log "🌐 Installing strict FQDN enforcement (via Cloud-Init script)..."
 mkdir -p "$CLOUD_INIT_SCRIPT_DIR"
 
 cat > "$HOSTNAME_SCRIPT" <<'EOF'
@@ -118,7 +103,7 @@ EOF
 
 chmod +x "$HOSTNAME_SCRIPT"
 
-log "🔁 Resetting cloud-init to run fresh on next boot..."
+log "🧼 Resetting Cloud-Init for next boot..."
 cloud-init clean --logs
 
 log "🧹 Final cleanup before template shutdown..."
@@ -129,4 +114,4 @@ ln -s /etc/machine-id /var/lib/dbus/machine-id
 
 history -c && history -w
 
-log "🎉 Template prep complete. Shut this VM down and convert it to a template!"
+log "✅ Template prep complete. You may now shut this VM down and convert it to a template."
