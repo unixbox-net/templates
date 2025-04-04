@@ -22,26 +22,26 @@ error_exit() {
 
 trap 'error_exit "Script encountered an error."' ERR
 
-log "Updating system..."
+log "🔄 Updating system..."
 apt update && apt full-upgrade -y
 apt autoremove -y && apt clean
 
-log "Installing essentials..."
+log "📦 Installing essentials..."
 apt install -y vim sudo qemu-guest-agent cloud-init openssh-server
 
-log "Configuring sudoers for 'debian' user..."
+log "🔐 Configuring sudoers for 'debian' user..."
 echo "debian ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/debian
 chmod 0440 /etc/sudoers.d/debian
 
-log "Enabling QEMU Guest Agent..."
+log "📡 Enabling QEMU Guest Agent..."
 systemctl enable --now qemu-guest-agent
 
-log "Configuring NTP..."
+log "🕒 Configuring NTP..."
 systemctl enable --now systemd-timesyncd
 sed -i 's|^#NTP=.*|NTP=0.debian.pool.ntp.org 1.debian.pool.ntp.org|' /etc/systemd/timesyncd.conf
 systemctl restart systemd-timesyncd
 
-log "Creating regenerate-machine-id.service..."
+log "🆔 Creating regenerate-machine-id.service..."
 cat > "$MACHINE_ID_RESET_SERVICE" <<EOF
 [Unit]
 Description=Regenerate machine-id
@@ -56,7 +56,7 @@ ExecStart=/bin/bash -c 'rm -f /etc/machine-id /var/lib/dbus/machine-id && system
 WantedBy=multi-user.target
 EOF
 
-log "Creating regenerate-ssh-hostkeys.service..."
+log "🔐 Creating regenerate-ssh-hostkeys.service..."
 cat > "$SSH_REGEN_SERVICE" <<EOF
 [Unit]
 Description=Regenerate SSH host keys
@@ -71,29 +71,29 @@ ExecStart=/bin/bash -c 'rm -f /etc/ssh/ssh_host_* && ssh-keygen -A'
 WantedBy=multi-user.target
 EOF
 
-log "Enabling regeneration services..."
+log "✅ Enabling regeneration services..."
 systemctl enable regenerate-machine-id.service
 systemctl enable regenerate-ssh-hostkeys.service
 
-log "Configuring cloud-init defaults..."
+log "⚙️ Configuring cloud-init defaults..."
 cat > /etc/cloud/cloud.cfg.d/99-custom.cfg <<EOF
 preserve_hostname: false
 ssh_deletekeys: true
 ssh_genkeytypes: ['rsa', 'ecdsa', 'ed25519']
 EOF
 
-log "Creating dynamic hostname script (cloud-init final phase)..."
+log "🧠 Installing dynamic hostname generator (cloud-init per-instance script)..."
 mkdir -p "$CLOUD_INIT_SCRIPT_DIR"
 
 cat > "$HOSTNAME_SCRIPT" <<'EOF'
 #!/bin/bash
 
 LOG_FILE="/var/log/cloud-init.log"
-NAME=$(cat /sys/class/dmi/id/product_name 2>/dev/null)
+NAME=$(cat /sys/class/dmi/id/product_serial 2>/dev/null)
 
-if [[ -z "$NAME" ]]; then
-  echo "[cloud-init] ERROR: Unable to read VM name from DMI (/sys/class/dmi/id/product_name)" | tee -a "$LOG_FILE"
-  exit 1
+if [[ -z "$NAME" || "$NAME" =~ ^StandardPC ]]; then
+  echo "[cloud-init] WARNING: Could not read a proper VM name from product_serial. Falling back to hostname." | tee -a "$LOG_FILE"
+  NAME=$(hostname)
 fi
 
 DOMAIN="lan.xaeon.io"
@@ -107,18 +107,17 @@ if [[ $? -ne 0 ]]; then
   exit 1
 fi
 
-# Clean and update /etc/hosts
 sed -i "/127.0.1.1/d" /etc/hosts
 echo "127.0.1.1 $FQDN $NAME" >> /etc/hosts
 
-echo "[cloud-init] Hostname successfully set to $FQDN and updated in /etc/hosts" | tee -a "$LOG_FILE"
+echo "[cloud-init] Hostname set to $FQDN and /etc/hosts updated." | tee -a "$LOG_FILE"
 EOF
 
 chmod +x "$HOSTNAME_SCRIPT"
 
-log "Final cleanup before shutdown..."
+log "🧹 Final cleanup before shutdown..."
 
-# Clear host identity
+# Clear host identity for template prep
 rm -f /etc/ssh/ssh_host_*
 truncate -s 0 /etc/machine-id
 rm -f /var/lib/dbus/machine-id
@@ -127,4 +126,4 @@ ln -s /etc/machine-id /var/lib/dbus/machine-id
 # Clear shell history
 history -c && history -w
 
-log "Template setup complete. You can now shut down and convert this VM to a template."
+log "🎉 Template setup complete. You can now shut down and convert this VM to a template."
